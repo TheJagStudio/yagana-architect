@@ -99,16 +99,20 @@ export function generateAutoLayout(
   yagna: Yagna,
   pxPerMeter: number = 50
 ): Kund[] {
+  const layoutType = yagna.settings.layoutType || 'grid';
   const count = yagna.settings.targetKundCount;
   const kundSize = yagna.settings.kundSize;
+  const mainKundSize = yagna.settings.mainKundSize || kundSize * 1.5;
   const seatOffset = yagna.settings.seatOffset !== undefined ? yagna.settings.seatOffset : 0.3;
   const seatWidth = yagna.settings.seatWidth || 0.4;
   const seatHeight = yagna.settings.seatHeight || 0.4;
   const maxSeatDim = Math.max(seatWidth, seatHeight);
 
   // Total footprint size in meters, including seats on both sides
-  const totalFootprintSize = kundSize + 2 * (seatOffset + maxSeatDim);
-  const kSize = totalFootprintSize * pxPerMeter;
+  const stdFootprintSize = kundSize + 2 * (seatOffset + maxSeatDim);
+  const mainFootprintSize = mainKundSize + 2 * (seatOffset + maxSeatDim);
+  const kSize = stdFootprintSize * pxPerMeter;
+  const mainKSize = mainFootprintSize * pxPerMeter;
   const padding = yagna.settings.padding * pxPerMeter;
   const direction = yagna.settings.kundDirection || 0;
   const kunds: Kund[] = [];
@@ -117,8 +121,8 @@ export function generateAutoLayout(
   const objects = yagna.objects || [];
   
   // Helper to check if a point intersects any object
-  const intersectsObject = (x: number, y: number) => {
-    const halfK = kSize / 2;
+  const intersectsObject = (x: number, y: number, isMain: boolean = false) => {
+    const halfK = (isMain ? mainKSize : kSize) / 2;
     for (const obj of objects) {
       if (obj.points && obj.points.length >= 6) {
          // Treat as polygon
@@ -162,35 +166,61 @@ export function generateAutoLayout(
     ];
   };
 
-  if (polyData) {
-    const { raw } = polyData;
-    
-    // Transform all polygon points to grid space to find the bounding box in grid space
-    const gridPoints = raw.map(([x, y]) => toGridSpace(x, y));
-    let minGx = Infinity, maxGx = -Infinity;
-    let minGy = Infinity, maxGy = -Infinity;
-    gridPoints.forEach(([gx, gy]) => {
-      if (gx < minGx) minGx = gx;
-      if (gx > maxGx) maxGx = gx;
-      if (gy < minGy) minGy = gy;
-      if (gy > maxGy) maxGy = gy;
-    });
+  const isValidPlacement = (cx: number, cy: number, isMain: boolean = false) => {
+    const size = isMain ? mainKSize : kSize;
+    if (polyData) {
+      const { raw } = polyData;
+      const isInside = polygonContains(raw, [cx, cy]);
+      const cPadding = (yagna.settings.canvasPadding || 0) * pxPerMeter;
+      const meetsPadding = isInside && (cPadding === 0 || distanceToPolygonBoundary([cx, cy], raw) >= (cPadding + size / 2));
+      if (!meetsPadding) return false;
+    }
+    return !intersectsObject(cx, cy, isMain);
+  };
 
-    const cPadding = (yagna.settings.canvasPadding || 0) * pxPerMeter;
-
-    let currentGy = minGy + kSize / 2;
+  if (layoutType === 'circular') {
     let num = 1;
+    let centerX = 0;
+    let centerY = 0;
+    
+    if (polyData) {
+      const { bounds } = polyData;
+      centerX = (bounds.minX + bounds.maxX) / 2;
+      centerY = (bounds.minY + bounds.maxY) / 2;
+    }
 
-    while (currentGy <= maxGy && num <= count) {
-      let currentGx = minGx + kSize / 2;
-      while (currentGx <= maxGx && num <= count) {
-        // Rotate back to canvas space to check polygon inclusion & object collision
-        const [cx, cy] = toCanvasSpace(currentGx, currentGy);
-        
-        const isInside = polygonContains(raw, [cx, cy]);
-        const meetsPadding = isInside && (cPadding === 0 || distanceToPolygonBoundary([cx, cy], raw) >= (cPadding + kSize / 2));
-        
-        if (meetsPadding && !intersectsObject(cx, cy)) {
+    // Try placing main kund at center
+    if (count > 0) {
+      if (isValidPlacement(centerX, centerY, true)) {
+        kunds.push({
+          id: uuidv4(),
+          x: centerX,
+          y: centerY,
+          rotation: direction,
+          number: num++,
+          assignedTo: null,
+          size: mainKundSize // set custom size for main kund
+        });
+      }
+    }
+
+    let ring = 1;
+    while (num <= count && ring < 100) { // Limit rings to prevent infinite loops
+      const radius = (mainKSize / 2) + (kSize / 2) + padding + (ring - 1) * (kSize + padding);
+      const circumference = 2 * Math.PI * radius;
+      const maxKundsInRing = Math.floor(circumference / (kSize + padding));
+      const angleStep = (2 * Math.PI) / Math.max(1, maxKundsInRing);
+
+      for (let i = 0; i < maxKundsInRing && num <= count; i++) {
+        const angle = i * angleStep;
+        // Apply global direction to the circular layout as well if desired, or just standard angles
+        const cx = centerX + radius * Math.cos(angle);
+        const cy = centerY + radius * Math.sin(angle);
+
+        if (isValidPlacement(cx, cy, false)) {
+          // For circular layout, we can rotate the Kund to face the center, or just use global direction.
+          // The prompt says "circle around the main big kund", let's keep rotation consistent with global direction for now,
+          // or we can face it outwards/inwards. Let's stick to global direction.
           kunds.push({
             id: uuidv4(),
             x: cx,
@@ -200,36 +230,72 @@ export function generateAutoLayout(
             assignedTo: null
           });
         }
-        currentGx += kSize + padding;
       }
-      currentGy += kSize + padding;
+      ring++;
     }
   } else {
-    // Default grid layout if no polygon
-    const cols = Math.ceil(Math.sqrt(count));
-    let num = 1;
-    const cPadding = (yagna.settings.canvasPadding || 0) * pxPerMeter;
-    let currentGy = - (cols * (kSize + padding)) / 2 + kSize / 2 + cPadding;
-    
-    while (num <= count) {
-      let currentGx = - (cols * (kSize + padding)) / 2 + kSize / 2 + cPadding;
-      for (let col = 0; col < cols * 3; col++) {
-        if (num > count) break;
-        const [cx, cy] = toCanvasSpace(currentGx, currentGy);
-        if (!intersectsObject(cx, cy)) {
-          kunds.push({
-            id: uuidv4(),
-            x: cx,
-            y: cy,
-            rotation: direction,
-            number: num++,
-            assignedTo: null
-          });
+    // Grid Layout
+    if (polyData) {
+      const { raw } = polyData;
+      const gridPoints = raw.map(([x, y]) => toGridSpace(x, y));
+      let minGx = Infinity, maxGx = -Infinity;
+      let minGy = Infinity, maxGy = -Infinity;
+      gridPoints.forEach(([gx, gy]) => {
+        if (gx < minGx) minGx = gx;
+        if (gx > maxGx) maxGx = gx;
+        if (gy < minGy) minGy = gy;
+        if (gy > maxGy) maxGy = gy;
+      });
+
+      let currentGy = minGy + kSize / 2;
+      let num = 1;
+
+      while (currentGy <= maxGy && num <= count) {
+        let currentGx = minGx + kSize / 2;
+        while (currentGx <= maxGx && num <= count) {
+          const [cx, cy] = toCanvasSpace(currentGx, currentGy);
+          
+          if (isValidPlacement(cx, cy)) {
+            kunds.push({
+              id: uuidv4(),
+              x: cx,
+              y: cy,
+              rotation: direction,
+              number: num++,
+              assignedTo: null
+            });
+          }
+          currentGx += kSize + padding;
         }
-        currentGx += kSize + padding;
+        currentGy += kSize + padding;
       }
-      currentGy += kSize + padding;
-      if (currentGy > (cols * (kSize + padding)) * 5) break;
+    } else {
+      // Default grid layout if no polygon
+      const cols = Math.ceil(Math.sqrt(count));
+      let num = 1;
+      const cPadding = (yagna.settings.canvasPadding || 0) * pxPerMeter;
+      let currentGy = - (cols * (kSize + padding)) / 2 + kSize / 2 + cPadding;
+      
+      while (num <= count) {
+        let currentGx = - (cols * (kSize + padding)) / 2 + kSize / 2 + cPadding;
+        for (let col = 0; col < cols * 3; col++) {
+          if (num > count) break;
+          const [cx, cy] = toCanvasSpace(currentGx, currentGy);
+          if (isValidPlacement(cx, cy)) {
+            kunds.push({
+              id: uuidv4(),
+              x: cx,
+              y: cy,
+              rotation: direction,
+              number: num++,
+              assignedTo: null
+            });
+          }
+          currentGx += kSize + padding;
+        }
+        currentGy += kSize + padding;
+        if (currentGy > (cols * (kSize + padding)) * 5) break;
+      }
     }
   }
 

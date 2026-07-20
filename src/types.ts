@@ -72,6 +72,8 @@ export interface YagnaSettings {
   kundAccessories?: KundAccessory[];
   individualSeats?: IndividualSeat[];
   groundOpacity?: number; // opacity of main area ground polygon, 0 to 1
+  layoutType?: 'grid' | 'circular';
+  mainKundSize?: number; // side length of the central main kund in circular layout
 }
 
 export interface Kund {

@@ -324,6 +324,29 @@ export default function Workspace({ yagna }: { yagna: Yagna }) {
               
               <div className="grid grid-cols-2 gap-6">
                 <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Layout Type</label>
+                  <select
+                    value={yagna.settings.layoutType || 'grid'}
+                    onChange={(e) => updateYagna(yagna.id, { settings: { ...yagna.settings, layoutType: e.target.value as 'grid' | 'circular' } })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-slate-900"
+                  >
+                    <option value="grid">Grid Layout</option>
+                    <option value="circular">Circular Layout</option>
+                  </select>
+                </div>
+                {yagna.settings.layoutType === 'circular' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Main Kund Size (meters)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={yagna.settings.mainKundSize || yagna.settings.kundSize * 1.5}
+                      onChange={(e) => updateYagna(yagna.id, { settings: { ...yagna.settings, mainKundSize: Number(e.target.value) } })}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-slate-900"
+                    />
+                  </div>
+                )}
+                <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">Target Kund Count</label>
                   <input
                     type="number"
