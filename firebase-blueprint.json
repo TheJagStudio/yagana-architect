@@ -1,0 +1,42 @@
+{
+  "entities": {
+    "yagna": {
+      "title": "Yagna Project",
+      "description": "Details of a Yagna project, its settings, layout, custom objects, and coordinates.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the project"
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the Yagna event"
+        },
+        "date": {
+          "type": "string",
+          "description": "Date of the event"
+        },
+        "ownerId": {
+          "type": "string",
+          "description": "The owner's Firebase user ID"
+        },
+        "createdAt": {
+          "type": "number",
+          "description": "Timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "number",
+          "description": "Timestamp of last edit"
+        }
+      },
+      "required": ["id", "name", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "yagnas/{yagnaId}": {
+      "schema": "yagna",
+      "description": "The collection of Yagna architectural projects"
+    }
+  }
+}

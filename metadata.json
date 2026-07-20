@@ -1,0 +1,6 @@
+{
+  "name": "Yagna Architect",
+  "description": "Architectural design tool for site planning and project management of Yagnas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
